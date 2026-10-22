@@ -53,7 +53,7 @@ body {
 .wrap { max-width: 1400px; margin: 0 auto; display: flex; flex-direction: column; gap: 16px; }
 header { display: flex; flex-direction: column; gap: 2px; border-bottom: 4px solid var(--accent); padding-bottom: 10px; }
 h1 { font-family: var(--font-display); font-weight: 800; font-size: clamp(2.6rem, 6vw, 4.2rem); line-height: 1; margin: 0; letter-spacing: 0.01em; text-transform: uppercase; }
-.disclaimer { font-size: 0.8rem; color: var(--muted); margin: 0; }
+.disclaimer { font-size: 0.8rem; color: var(--muted); margin: 0; display: flex; justify-content: space-between; gap: 4px 16px; flex-wrap: wrap; }
 .grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.25fr); gap: 16px; align-items: start; }
 .right { display: flex; flex-direction: column; gap: 16px; min-width: 0; }
 @media (max-width: 860px) { .grid { grid-template-columns: minmax(0, 1fr); } .right { order: -1; } }
@@ -148,7 +148,7 @@ button.danger { color: var(--bad); }
 <div class="wrap">
   <header>
     <h1>Der Finder</h1>
-    <p class="disclaimer">Angaben ohne Gewähr! Privatentwicklung! Idee: E.W. Code: C.C.</p>
+    <div class="disclaimer"><span>Privatentwicklung! Ohne Gewähr!</span><span>Idee: E.W. Code: C.C.</span></div>
   </header>
 
   <div class="grid">
