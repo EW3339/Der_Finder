@@ -1,0 +1,689 @@
+<!doctype html><html lang="de"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"></head><body>
+<title>Der Finder</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@600;800&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;600&display=swap">
+<style>
+/* Layout: Werkstatt-Terminal. Kopf über volle Breite, darunter links Suchliste, rechts Scanfeld oben und Status unten. */
+:root {
+  --bg: #eef1f4;
+  --panel: #ffffff;
+  --line: #cfd6de;
+  --fg: #17212b;
+  --muted: #5b6875;
+  --accent: #f2b705;      /* Signalgelb */
+  --accent-ink: #1b1600;
+  --ok: #1d8a4e;
+  --ok-bg: #dff3e7;
+  --bad: #c62828;
+  --bad-bg: #fbe3e3;
+  --info: #2f5f98;
+  --info-bg: #e2ebf6;
+  --focus: #2f5f98;
+  --font-display: "Barlow Condensed", "Arial Narrow", "Roboto Condensed", sans-serif;
+  --font-body: "IBM Plex Sans", "Segoe UI", system-ui, sans-serif;
+  --font-mono: "IBM Plex Mono", Consolas, "Courier New", monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #12171c; --panel: #1b232b; --line: #2e3a46; --fg: #e6ebf0; --muted: #98a6b3;
+    --accent: #f5c021; --accent-ink: #1b1600;
+    --ok: #4cc57f; --ok-bg: #173826; --bad: #ff6b6b; --bad-bg: #3d1c1c;
+    --info: #8db6e8; --info-bg: #1c2c40; --focus: #8db6e8;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #12171c; --panel: #1b232b; --line: #2e3a46; --fg: #e6ebf0; --muted: #98a6b3;
+  --accent: #f5c021; --accent-ink: #1b1600;
+  --ok: #4cc57f; --ok-bg: #173826; --bad: #ff6b6b; --bad-bg: #3d1c1c;
+  --info: #8db6e8; --info-bg: #1c2c40; --focus: #8db6e8;
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+[hidden] { display: none !important; }
+html { -webkit-text-size-adjust: 100%; }
+body { margin: 0; }
+body {
+  background: var(--bg); color: var(--fg); font-family: var(--font-body); font-size: 15px; line-height: 1.45;
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+  padding-block: 16px 32px;
+}
+.wrap { max-width: 1400px; margin: 0 auto; display: flex; flex-direction: column; gap: 16px; }
+header { display: flex; flex-direction: column; gap: 2px; border-bottom: 4px solid var(--accent); padding-bottom: 10px; }
+h1 { font-family: var(--font-display); font-weight: 800; font-size: clamp(2.6rem, 6vw, 4.2rem); line-height: 1; margin: 0; letter-spacing: 0.01em; text-transform: uppercase; }
+.disclaimer { font-size: 0.8rem; color: var(--muted); margin: 0; }
+.grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.25fr); gap: 16px; align-items: start; }
+.right { display: flex; flex-direction: column; gap: 16px; min-width: 0; }
+@media (max-width: 860px) { .grid { grid-template-columns: minmax(0, 1fr); } .right { order: -1; } }
+.panel { background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 16px; display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+h2 { font-family: var(--font-display); font-weight: 600; font-size: 1.35rem; text-transform: uppercase; letter-spacing: 0.04em; margin: 0; display: flex; justify-content: space-between; align-items: baseline; gap: 8px; flex-wrap: wrap; }
+h2 small { font-family: var(--font-body); font-size: 0.8rem; text-transform: none; letter-spacing: 0; color: var(--muted); font-weight: 400; }
+textarea, input[type=text] { width: 100%; font-family: var(--font-mono); font-size: 0.95rem; color: var(--fg); background: var(--bg); border: 1px solid var(--line); border-radius: 4px; padding: 8px 10px; }
+textarea { min-height: 150px; resize: vertical; }
+textarea:focus-visible, input:focus-visible, button:focus-visible, select:focus-visible { outline: 3px solid var(--focus); outline-offset: 1px; }
+.row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+button, .btn { font: 600 0.9rem var(--font-body); padding: 8px 14px; border-radius: 4px; border: 1px solid var(--line); background: var(--panel); color: var(--fg); cursor: pointer; display: inline-flex; align-items: center; gap: 6px; }
+button:hover, .btn:hover { border-color: var(--muted); }
+button.primary { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
+button.danger { color: var(--bad); }
+.opts { display: grid; gap: 4px; font-size: 0.88rem; }
+.opts label { display: flex; gap: 8px; align-items: flex-start; }
+.opts input { margin-top: 3px; }
+.hint { font-size: 0.82rem; color: var(--muted); margin: 0; }
+.patterns { font-family: var(--font-mono); font-size: 0.82rem; display: flex; flex-wrap: wrap; gap: 6px; }
+.patterns span { background: var(--info-bg); color: var(--info); padding: 2px 6px; border-radius: 3px; }
+.sample { background: var(--info-bg); color: var(--info); padding: 8px 10px; border-radius: 4px; font-size: 0.85rem; }
+.list { max-height: 420px; overflow: auto; border: 1px solid var(--line); border-radius: 4px; }
+.list table { width: 100%; border-collapse: collapse; font-size: 0.9rem; }
+.list td { padding: 5px 10px; border-bottom: 1px solid var(--line); }
+.list td.code { font-family: var(--font-mono); word-break: break-all; }
+.list tr.found td { background: var(--ok-bg); }
+.chip { display: inline-block; font-size: 0.72rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.06em; padding: 2px 7px; border-radius: 999px; white-space: nowrap; }
+.chip.open { background: var(--bg); color: var(--muted); border: 1px solid var(--line); }
+.chip.found { background: var(--ok); color: var(--panel); }
+.chip.nohit { background: var(--bg); color: var(--muted); border: 1px solid var(--line); }
+.chip.syntax { background: var(--bad); color: var(--panel); }
+.chip.again { background: var(--info); color: var(--panel); }
+.chip.dup { background: var(--info-bg); color: var(--info); }
+.filter { display: flex; gap: 4px; }
+.filter button { padding: 4px 10px; font-size: 0.8rem; }
+.filter button[aria-pressed=true] { background: var(--fg); color: var(--panel); border-color: var(--fg); }
+
+/* Scanfeld */
+.scan { border-width: 2px; }
+.scan.ready { border-color: var(--ok); }
+.scan.lost { border-color: var(--accent); }
+.scanstate { font: 600 0.85rem var(--font-body); text-transform: uppercase; letter-spacing: 0.06em; display: flex; align-items: center; gap: 8px; }
+.dot { width: 10px; height: 10px; border-radius: 50%; background: var(--muted); }
+.scan.ready .dot { background: var(--ok); box-shadow: 0 0 0 4px var(--ok-bg); }
+.scan.lost .dot { background: var(--accent); }
+#scanInput { font-size: 1.6rem; padding: 14px 16px; font-weight: 600; letter-spacing: 0.03em; }
+.camwrap { position: relative; border-radius: 4px; overflow: hidden; background: #000; max-width: 100%; }
+.camwrap video { display: block; width: 100%; max-height: 320px; object-fit: cover; }
+.camwrap .aim { position: absolute; inset: 30% 12%; border: 2px solid var(--accent); border-radius: 4px; pointer-events: none; }
+.msg { font-size: 0.85rem; padding: 8px 10px; border-radius: 4px; background: var(--bad-bg); color: var(--bad); }
+
+/* Status */
+.current { border-radius: 4px; padding: 14px 16px; background: var(--bg); border: 1px solid var(--line); display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.current .lbl { font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); }
+.current .val { font: 600 clamp(1.3rem, 3vw, 2rem) var(--font-mono); word-break: break-all; }
+.current .res { font-weight: 600; }
+.current.r-found { background: var(--ok-bg); border-color: var(--ok); }
+.current.r-found .res { color: var(--ok); }
+.current.r-syntax { background: var(--bad-bg); border-color: var(--bad); }
+.current.r-syntax .res { color: var(--bad); }
+.current.r-again, .current.r-dup { background: var(--info-bg); border-color: var(--info); }
+.current.r-again .res, .current.r-dup .res { color: var(--info); }
+.counts { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; }
+@media (max-width: 520px) { .counts { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+.count { border: 1px solid var(--line); border-radius: 4px; padding: 10px 12px; display: flex; flex-direction: column; gap: 2px; }
+.count .n { font: 800 2.4rem/1 var(--font-display); font-variant-numeric: tabular-nums; }
+.count .l { font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); }
+.count.found .n { color: var(--ok); }
+.count.open .n { color: var(--fg); }
+.count.err .n { color: var(--bad); }
+.bar { height: 8px; background: var(--bg); border-radius: 4px; overflow: hidden; border: 1px solid var(--line); }
+.bar i { display: block; height: 100%; background: var(--ok); width: 0; transition: width .3s; }
+.log { max-height: 260px; overflow: auto; border: 1px solid var(--line); border-radius: 4px; }
+.log table { width: 100%; border-collapse: collapse; font-size: 0.85rem; }
+.log th { text-align: left; font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); padding: 6px 10px; border-bottom: 1px solid var(--line); position: sticky; top: 0; background: var(--panel); }
+.log td { padding: 4px 10px; border-bottom: 1px solid var(--line); }
+.log td.code { font-family: var(--font-mono); word-break: break-all; }
+.log td.t { font-variant-numeric: tabular-nums; color: var(--muted); white-space: nowrap; }
+.vol { display: flex; align-items: center; gap: 8px; font-size: 0.85rem; color: var(--muted); }
+
+/* Alarm */
+.alarm { position: fixed; inset: 0; z-index: 50; display: flex; align-items: center; justify-content: center; padding: 16px; background: rgba(10, 60, 30, 0.78); }
+.alarm-box { background: var(--panel); border: 6px solid var(--ok); border-radius: 8px; padding: 28px 24px; max-width: 640px; width: 100%; display: flex; flex-direction: column; gap: 14px; text-align: center; animation: pulse 0.5s ease-in-out infinite alternate; }
+.alarm-box .big { font: 800 clamp(2.6rem, 9vw, 4.5rem)/1 var(--font-display); color: var(--ok); text-transform: uppercase; }
+.alarm-box .code { font: 600 clamp(1.4rem, 5vw, 2.2rem) var(--font-mono); word-break: break-all; }
+.alarm-box button { justify-content: center; font-size: 1.2rem; padding: 14px; background: var(--ok); color: var(--panel); border-color: var(--ok); }
+@keyframes pulse { from { box-shadow: 0 0 0 0 var(--ok); } to { box-shadow: 0 0 0 18px transparent; } }
+.confirm { background: var(--bad-bg); color: var(--bad); padding: 10px; border-radius: 4px; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; font-size: 0.88rem; }
+@media (prefers-reduced-motion: reduce) { .alarm-box { animation: none; } .bar i { transition: none; } }
+</style>
+
+<div class="wrap">
+  <header>
+    <h1>Der Finder</h1>
+    <p class="disclaimer">Angaben ohne Gewähr! Privatentwicklung! Idee: E.W. Code: C.C.</p>
+  </header>
+
+  <div class="grid">
+    <!-- Links: Suchliste -->
+    <section class="panel" aria-labelledby="hList">
+      <h2 id="hList">Gesuchte Nummern <small id="listInfo"></small></h2>
+      <div class="sample" id="sampleNote" hidden>Beispielliste geladen. Eigene Nummern einfügen oder eine Datei laden und „Liste übernehmen“ drücken.</div>
+      <label for="listInput" class="hint">Eine Nummer pro Zeile. Komma, Semikolon und Tabulator trennen ebenfalls, Excel-Spalten lassen sich direkt einfügen.</label>
+      <textarea id="listInput" spellcheck="false" autocomplete="off"></textarea>
+      <div class="row">
+        <button class="primary" id="btnApply">Liste übernehmen</button>
+        <label class="btn" for="fileInput">Datei laden (.txt / .csv)</label>
+        <input type="file" id="fileInput" accept=".txt,.csv,.tsv,text/plain,text/csv" hidden>
+        <button id="btnClearList">Textfeld leeren</button>
+      </div>
+      <div class="opts">
+        <label><input type="checkbox" id="optCase" checked> Groß-/Kleinschreibung ignorieren</label>
+        <label><input type="checkbox" id="optSep"> Leerzeichen, Bindestriche, Punkte und Schrägstriche ignorieren</label>
+        <label><input type="checkbox" id="optContains"> Treffer auch, wenn die Nummer nur Teil eines längeren Codes ist (z.&nbsp;B. DataMatrix mit mehreren Feldern)</label>
+      </div>
+      <div class="opts">
+        <span class="hint">Erkannte Syntax der Liste (A = Buchstabe, 9 = Ziffer):</span>
+        <div class="patterns" id="patterns"></div>
+        <label for="optRegex" class="hint">Eigene Syntax als regulärer Ausdruck (optional, ersetzt die erkannte):</label>
+        <input type="text" id="optRegex" placeholder="z. B. ^SN\d{8}$" spellcheck="false" autocomplete="off">
+      </div>
+      <div class="row" style="justify-content: space-between">
+        <div class="filter" role="group" aria-label="Filter">
+          <button data-f="all" aria-pressed="true">Alle</button>
+          <button data-f="open" aria-pressed="false">Offen</button>
+          <button data-f="found" aria-pressed="false">Gefunden</button>
+        </div>
+        <button id="btnCopyOpen">Offene kopieren</button>
+      </div>
+      <div class="list"><table><tbody id="listBody"></tbody></table></div>
+    </section>
+
+    <div class="right">
+      <!-- Rechts oben: Scanfeld -->
+      <section class="panel scan lost" id="scanPanel" aria-labelledby="hScan">
+        <h2 id="hScan">Scannen <span class="scanstate"><span class="dot"></span><span id="scanState">Bereit</span></span></h2>
+        <input type="text" id="scanInput" autocomplete="off" spellcheck="false" autocapitalize="off" placeholder="Hier scannen …" aria-label="Scanfeld">
+        <div class="row">
+          <button id="btnCam">Kamera-Scan starten</button>
+          <div class="vol"><label for="vol">Lautstärke</label><input type="range" id="vol" min="0.05" max="1" step="0.05" value="0.6"></div>
+          <button id="btnTest">Ton testen</button>
+        </div>
+        <div class="msg" id="camMsg" hidden></div>
+        <div class="camwrap" id="camWrap" hidden><video id="camVideo" playsinline muted></video><div class="aim"></div></div>
+      </section>
+
+      <!-- Rechts unten: Status -->
+      <section class="panel" aria-labelledby="hStatus">
+        <h2 id="hStatus">Status</h2>
+        <div class="current" id="current" aria-live="polite">
+          <span class="lbl">Aktuelle Seriennummer</span>
+          <span class="val" id="curVal">–</span>
+          <span class="res" id="curRes">Noch nichts gescannt</span>
+        </div>
+        <div class="counts">
+          <div class="count"><span class="n" id="nScanned">0</span><span class="l">Gescannt</span></div>
+          <div class="count found"><span class="n" id="nFound">0</span><span class="l">Gefunden</span></div>
+          <div class="count open"><span class="n" id="nOpen">0</span><span class="l">Offen</span></div>
+          <div class="count err"><span class="n" id="nSyntax">0</span><span class="l">Syntaxfehler</span></div>
+        </div>
+        <div class="bar" aria-hidden="true"><i id="bar"></i></div>
+        <div class="row" style="justify-content: space-between">
+          <span class="hint" id="dupInfo"></span>
+          <div class="row">
+            <button id="btnCopyLog">Protokoll kopieren</button>
+            <button id="btnSaveLog">Protokoll speichern (CSV)</button>
+            <button class="danger" id="btnReset">Neuer Durchgang</button>
+          </div>
+        </div>
+        <div class="confirm" id="resetConfirm" hidden>
+          Zähler und Protokoll löschen? Die Liste bleibt erhalten, alle Nummern werden wieder „offen“.
+          <button class="danger" id="btnResetYes">Ja, zurücksetzen</button>
+          <button id="btnResetNo">Abbrechen</button>
+        </div>
+        <div class="log"><table><thead><tr><th>Zeit</th><th>Code</th><th>Ergebnis</th></tr></thead><tbody id="logBody"></tbody></table></div>
+      </section>
+    </div>
+  </div>
+</div>
+
+<div class="alarm" id="alarm" hidden role="alertdialog" aria-labelledby="alarmTitle">
+  <div class="alarm-box">
+    <div class="big" id="alarmTitle">Gefunden!</div>
+    <div class="code" id="alarmCode"></div>
+    <div class="hint" id="alarmInfo"></div>
+    <button id="btnAck">Quittieren</button>
+    <div class="hint">Quittieren per Klick oder Strg+Enter. Bis dahin werden keine weiteren Scans angenommen.</div>
+  </div>
+</div>
+
+<script>
+(function () {
+  "use strict";
+  var KEY = "derFinder.v1";
+  var SAMPLE = ["SN-2024-00417", "SN-2024-00982", "SN-2024-01133", "SN-2023-07720", "SN-2024-01501"];
+  var $ = function (id) { return document.getElementById(id); };
+
+  // ---------- Zustand ----------
+  var state = {
+    list: [],            // {raw, key, found, at}
+    log: [],             // {t, raw, result, ref}
+    opts: { ci: true, sep: false, contains: false, regex: "" },
+    sample: false
+  };
+  var filter = "all";
+  var alarmOn = false;
+
+  function save() {
+    try { localStorage.setItem(KEY, JSON.stringify(state)); } catch (e) {}
+  }
+  function load() {
+    try {
+      var s = JSON.parse(localStorage.getItem(KEY) || "null");
+      if (s && Array.isArray(s.list)) { state = Object.assign(state, s); return true; }
+    } catch (e) {}
+    return false;
+  }
+
+  // ---------- Normalisierung & Syntax ----------
+  function norm(s) {
+    s = String(s).replace(/[\u0000-\u001f]/g, "").trim();
+    if (state.opts.sep) s = s.replace(/[\s\-._/]/g, "");
+    if (state.opts.ci) s = s.toUpperCase();
+    return s;
+  }
+  function shape(s) {
+    return s.replace(/[0-9]/g, "9").replace(/[A-Za-zÄÖÜäöüß]/g, "A");
+  }
+  var shapes = {};
+  var userRe = null;
+  function rebuildSyntax() {
+    shapes = {};
+    state.list.forEach(function (e) { var sh = shape(e.key); shapes[sh] = (shapes[sh] || 0) + 1; });
+    userRe = null;
+    var r = state.opts.regex.trim();
+    if (r) { try { userRe = new RegExp(r, state.opts.ci ? "i" : ""); } catch (e) { userRe = "bad"; } }
+    var box = $("patterns");
+    box.textContent = "";
+    if (userRe === "bad") { box.innerHTML = '<span style="background:var(--bad-bg);color:var(--bad)">Ausdruck ungültig, erkannte Syntax wird verwendet</span>'; }
+    else if (userRe) { var sp = document.createElement("span"); sp.textContent = "eigene: " + r; box.appendChild(sp); }
+    var keys = Object.keys(shapes).sort(function (a, b) { return shapes[b] - shapes[a]; });
+    keys.slice(0, 12).forEach(function (k) {
+      var sp = document.createElement("span"); sp.textContent = k + "  (" + shapes[k] + "×)"; box.appendChild(sp);
+    });
+    if (keys.length > 12) { var more = document.createElement("span"); more.textContent = "+" + (keys.length - 12) + " weitere"; box.appendChild(more); }
+    if (!keys.length) box.innerHTML = '<span>keine Liste</span>';
+  }
+  function syntaxOk(key) {
+    if (!state.list.length) return true;
+    if (userRe && userRe !== "bad") return userRe.test(key);
+    if (state.opts.contains) return true;
+    return !!shapes[shape(key)];
+  }
+
+  // ---------- Liste ----------
+  function parseList(text) {
+    var out = [], seen = {};
+    text.split(/[\r\n,;\t]+/).forEach(function (part) {
+      var raw = part.replace(/^"|"$/g, "").trim();
+      if (!raw) return;
+      var k = norm(raw);
+      if (!k || seen[k]) return;
+      seen[k] = 1; out.push({ raw: raw, key: k, found: false, at: null });
+    });
+    return out;
+  }
+  function applyList(text, isSample) {
+    var old = {};
+    state.list.forEach(function (e) { if (e.found) old[e.key] = e.at; });
+    state.list = parseList(text).map(function (e) { if (old[e.key]) { e.found = true; e.at = old[e.key]; } return e; });
+    state.sample = !!isSample;
+    rebuildSyntax(); renderAll(); save();
+  }
+  function rekeyList() {
+    var seen = {};
+    state.list = state.list.filter(function (e) { e.key = norm(e.raw); if (seen[e.key]) return false; seen[e.key] = 1; return true; });
+    rebuildSyntax(); renderAll(); save();
+  }
+
+  function findEntry(key) {
+    for (var i = 0; i < state.list.length; i++) {
+      var e = state.list[i];
+      if (e.key === key) return e;
+    }
+    if (state.opts.contains) {
+      for (var j = 0; j < state.list.length; j++) {
+        if (state.list[j].key && key.indexOf(state.list[j].key) !== -1) return state.list[j];
+      }
+    }
+    return null;
+  }
+
+  // ---------- Töne ----------
+  var ac = null, alarmTimer = null;
+  function audio() {
+    if (!ac) { try { ac = new (window.AudioContext || window.webkitAudioContext)(); } catch (e) { ac = null; } }
+    if (ac && ac.state === "suspended") ac.resume();
+    return ac;
+  }
+  function tone(freq, dur, type, delay) {
+    var a = audio(); if (!a) return;
+    var t0 = a.currentTime + (delay || 0);
+    var o = a.createOscillator(), g = a.createGain();
+    var v = parseFloat($("vol").value) || 0.6;
+    o.type = type || "sine"; o.frequency.value = freq;
+    g.gain.setValueAtTime(0.0001, t0);
+    g.gain.exponentialRampToValueAtTime(v * 0.5, t0 + 0.01);
+    g.gain.exponentialRampToValueAtTime(0.0001, t0 + dur);
+    o.connect(g); g.connect(a.destination); o.start(t0); o.stop(t0 + dur + 0.02);
+  }
+  var SOUND = {
+    nohit: function () { tone(660, 0.12, "sine"); },
+    syntax: function () { tone(200, 0.18, "square"); tone(200, 0.18, "square", 0.24); },
+    again: function () { tone(990, 0.08, "triangle"); tone(990, 0.08, "triangle", 0.13); },
+    dup: function () { tone(520, 0.08, "sine"); tone(440, 0.1, "sine", 0.1); }
+  };
+  function startAlarm() {
+    stopAlarm();
+    var hi = true;
+    var beep = function () { tone(hi ? 1320 : 880, 0.22, "sawtooth"); hi = !hi; };
+    beep(); alarmTimer = setInterval(beep, 260);
+  }
+  function stopAlarm() { if (alarmTimer) clearInterval(alarmTimer); alarmTimer = null; }
+
+  // ---------- Scan-Verarbeitung ----------
+  var RESULT = {
+    found: { chip: "found", text: "TREFFER" },
+    again: { chip: "again", text: "bereits gefunden" },
+    nohit: { chip: "nohit", text: "nicht gesucht" },
+    dup: { chip: "dup", text: "schon gescannt, nicht gesucht" },
+    syntax: { chip: "syntax", text: "Syntax passt nicht zur Liste" }
+  };
+  function processScan(raw, source) {
+    if (alarmOn) { SOUND.syntax(); return; }
+    var key = norm(raw);
+    if (!key) return;
+    var result, ref = null;
+    var e = findEntry(key);
+    if (e) {
+      ref = e.raw;
+      if (e.found) result = "again";
+      else { e.found = true; e.at = Date.now(); result = "found"; }
+    } else if (!syntaxOk(key)) {
+      result = "syntax";
+    } else {
+      var before = state.log.some(function (l) { return norm(l.raw) === key; });
+      result = before ? "dup" : "nohit";
+    }
+    state.log.push({ t: Date.now(), raw: raw.trim(), result: result, ref: ref, src: source || "" });
+    save();
+    renderStatus(raw.trim(), result, ref);
+    renderList(); renderLog();
+    if (result === "found") showAlarm(raw.trim(), ref);
+    else SOUND[result]();
+  }
+
+  function showAlarm(code, ref) {
+    alarmOn = true;
+    $("alarmCode").textContent = code;
+    $("alarmInfo").textContent = ref && norm(ref) !== norm(code) ? "Listeneintrag: " + ref : "";
+    $("alarm").hidden = false;
+    $("btnAck").focus();
+    startAlarm();
+    if (navigator.vibrate) { try { navigator.vibrate([300, 150, 300, 150, 300]); } catch (e) {} }
+  }
+  function ackAlarm() {
+    if (!alarmOn) return;
+    alarmOn = false; stopAlarm();
+    $("alarm").hidden = true;
+    var last = state.log[state.log.length - 1];
+    if (last) last.ack = Date.now();
+    save();
+    focusScan();
+  }
+
+  // ---------- Darstellung ----------
+  function fmtTime(t) {
+    var d = new Date(t);
+    return d.toLocaleTimeString("de-DE", { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+  }
+  function counts() {
+    var found = state.list.filter(function (e) { return e.found; }).length;
+    var syn = state.log.filter(function (l) { return l.result === "syntax"; }).length;
+    var dup = state.log.filter(function (l) { return l.result === "dup" || l.result === "again"; }).length;
+    return { scanned: state.log.length, found: found, open: state.list.length - found, syntax: syn, dup: dup };
+  }
+  function renderStatus(code, result, ref) {
+    var c = counts();
+    $("nScanned").textContent = c.scanned;
+    $("nFound").textContent = c.found;
+    $("nOpen").textContent = c.open;
+    $("nSyntax").textContent = c.syntax;
+    $("bar").style.width = state.list.length ? (100 * c.found / state.list.length) + "%" : "0";
+    $("dupInfo").textContent = c.dup ? c.dup + " Mehrfachscans" : "";
+    $("listInfo").textContent = state.list.length + " Einträge, " + c.found + " gefunden";
+    if (code !== undefined) {
+      var cur = $("current");
+      cur.className = "current r-" + result;
+      $("curVal").textContent = code;
+      $("curRes").textContent = RESULT[result].text + (ref && result !== "found" && norm(ref) !== norm(code) ? " (" + ref + ")" : "");
+    }
+  }
+  function renderList() {
+    var body = $("listBody");
+    body.textContent = "";
+    var frag = document.createDocumentFragment();
+    state.list.forEach(function (e) {
+      if (filter === "open" && e.found) return;
+      if (filter === "found" && !e.found) return;
+      var tr = document.createElement("tr");
+      if (e.found) tr.className = "found";
+      var td1 = document.createElement("td"); td1.className = "code"; td1.textContent = e.raw;
+      var td2 = document.createElement("td"); td2.style.textAlign = "right";
+      var chip = document.createElement("span"); chip.className = "chip " + (e.found ? "found" : "open");
+      chip.textContent = e.found ? "gefunden " + fmtTime(e.at) : "offen";
+      td2.appendChild(chip); tr.appendChild(td1); tr.appendChild(td2); frag.appendChild(tr);
+    });
+    body.appendChild(frag);
+    $("sampleNote").hidden = !state.sample;
+  }
+  function renderLog() {
+    var body = $("logBody");
+    body.textContent = "";
+    var frag = document.createDocumentFragment();
+    for (var i = state.log.length - 1, n = 0; i >= 0 && n < 300; i--, n++) {
+      var l = state.log[i];
+      var tr = document.createElement("tr");
+      var a = document.createElement("td"); a.className = "t"; a.textContent = fmtTime(l.t);
+      var b = document.createElement("td"); b.className = "code"; b.textContent = l.raw;
+      var c = document.createElement("td");
+      var chip = document.createElement("span"); chip.className = "chip " + RESULT[l.result].chip; chip.textContent = RESULT[l.result].text;
+      c.appendChild(chip);
+      tr.appendChild(a); tr.appendChild(b); tr.appendChild(c); frag.appendChild(tr);
+    }
+    body.appendChild(frag);
+  }
+  function renderAll() { renderStatus(); renderList(); renderLog(); }
+
+  // ---------- Fokus ----------
+  var scanInput = $("scanInput");
+  function focusScan() { if (!alarmOn) scanInput.focus({ preventScroll: true }); }
+  function setFocusState() {
+    var on = document.activeElement === scanInput;
+    $("scanPanel").className = "panel scan " + (on ? "ready" : "lost");
+    $("scanState").textContent = on ? "Bereit zum Scannen" : "Ins Scanfeld klicken";
+  }
+  scanInput.addEventListener("focus", setFocusState);
+  scanInput.addEventListener("blur", setFocusState);
+  $("scanPanel").addEventListener("click", function (ev) {
+    if (!ev.target.closest("button, input[type=range], label")) focusScan();
+  });
+
+  scanInput.addEventListener("keydown", function (ev) {
+    audio();
+    if (ev.key === "Enter" || ev.key === "Tab") {
+      if (ev.ctrlKey) return;
+      ev.preventDefault();
+      var v = scanInput.value;
+      scanInput.value = "";
+      if (v.trim()) processScan(v, "Scanner");
+    }
+  });
+
+  document.addEventListener("keydown", function (ev) {
+    if (alarmOn) {
+      // Während des Alarms alle Tasten schlucken, damit ein weiterer Scan (Enter) nicht quittiert
+      ev.preventDefault();
+      if (ev.key === "Enter" && ev.ctrlKey) ackAlarm();
+      else if (ev.key.length === 1 || ev.key === "Enter") SOUND.syntax();
+    }
+  }, true);
+  $("btnAck").addEventListener("click", ackAlarm);
+
+  // ---------- Bedienelemente links ----------
+  $("btnApply").addEventListener("click", function () { applyList($("listInput").value, false); });
+  $("btnClearList").addEventListener("click", function () { $("listInput").value = ""; $("listInput").focus(); });
+  $("fileInput").addEventListener("change", function (ev) {
+    var f = ev.target.files && ev.target.files[0]; if (!f) return;
+    var r = new FileReader();
+    r.onload = function () { $("listInput").value = String(r.result); applyList(String(r.result), false); };
+    r.readAsText(f);
+    ev.target.value = "";
+  });
+  function bindOpt(id, name) {
+    var el = $(id);
+    el.checked = !!state.opts[name];
+    el.addEventListener("change", function () { state.opts[name] = el.checked; rekeyList(); });
+  }
+  $("optRegex").addEventListener("input", function () { state.opts.regex = this.value; rebuildSyntax(); save(); });
+  Array.prototype.forEach.call(document.querySelectorAll(".filter button"), function (b) {
+    b.addEventListener("click", function () {
+      filter = b.getAttribute("data-f");
+      Array.prototype.forEach.call(document.querySelectorAll(".filter button"), function (x) { x.setAttribute("aria-pressed", x === b ? "true" : "false"); });
+      renderList();
+    });
+  });
+
+  function copyText(text, btn) {
+    var label = btn.textContent;
+    var done = function (ok) { btn.textContent = ok ? "Kopiert" : "Kopieren nicht möglich"; setTimeout(function () { btn.textContent = label; }, 1600); };
+    try {
+      navigator.clipboard.writeText(text).then(function () { done(true); }, function () { fallback(); });
+    } catch (e) { fallback(); }
+    function fallback() {
+      var ta = document.createElement("textarea"); ta.value = text; document.body.appendChild(ta); ta.select();
+      var ok = false; try { ok = document.execCommand("copy"); } catch (e) {}
+      document.body.removeChild(ta); done(ok);
+    }
+  }
+  $("btnCopyOpen").addEventListener("click", function () {
+    copyText(state.list.filter(function (e) { return !e.found; }).map(function (e) { return e.raw; }).join("\n"), this);
+  });
+  function logCsv() {
+    var rows = [["Zeit", "Code", "Ergebnis", "Listeneintrag", "Quelle"]];
+    state.log.forEach(function (l) {
+      rows.push([new Date(l.t).toLocaleString("de-DE"), l.raw, RESULT[l.result].text, l.ref || "", l.src || ""]);
+    });
+    return rows.map(function (r) { return r.map(function (c) { return '"' + String(c).replace(/"/g, '""') + '"'; }).join(";"); }).join("\r\n");
+  }
+  $("btnCopyLog").addEventListener("click", function () { copyText(logCsv(), this); });
+  $("btnSaveLog").addEventListener("click", async function () {
+    var name = "Finder_Protokoll_" + new Date().toISOString().slice(0, 16).replace(/[:T]/g, "-") + ".csv";
+    var data = "﻿" + logCsv();
+    var dl = null;
+    try { dl = window.claude && window.claude.use ? await window.claude.use("downloads") : null; } catch (e) { dl = null; }
+    if (dl) { try { await dl.save({ filename: name, data: data }); } catch (e) {} return; }
+    var a = document.createElement("a");
+    a.href = URL.createObjectURL(new Blob([data], { type: "text/csv;charset=utf-8" }));
+    a.download = name; document.body.appendChild(a); a.click();
+    setTimeout(function () { URL.revokeObjectURL(a.href); a.remove(); }, 1000);
+  });
+  $("btnReset").addEventListener("click", function () { $("resetConfirm").hidden = false; });
+  $("btnResetNo").addEventListener("click", function () { $("resetConfirm").hidden = true; focusScan(); });
+  $("btnResetYes").addEventListener("click", function () {
+    state.log = []; state.list.forEach(function (e) { e.found = false; e.at = null; });
+    $("resetConfirm").hidden = true;
+    $("current").className = "current"; $("curVal").textContent = "–"; $("curRes").textContent = "Noch nichts gescannt";
+    save(); renderAll(); focusScan();
+  });
+  $("btnTest").addEventListener("click", function () {
+    SOUND.nohit(); setTimeout(SOUND.again, 400); setTimeout(SOUND.syntax, 800);
+  });
+
+  // ---------- Kamera ----------
+  var cam = { on: false, stream: null, timer: null, zx: null, last: "", lastT: 0 };
+  function camMsg(t) { $("camMsg").textContent = t || ""; $("camMsg").hidden = !t; }
+  function camHit(text) {
+    var now = Date.now();
+    if (alarmOn) return;
+    if (text === cam.last && now - cam.lastT < 2500) return;
+    cam.last = text; cam.lastT = now;
+    processScan(text, "Kamera");
+  }
+  function loadZxing() {
+    return new Promise(function (res, rej) {
+      if (window.ZXing) return res();
+      var s = document.createElement("script");
+      s.src = "https://cdn.jsdelivr.net/npm/@zxing/library@0.21.3/umd/index.min.js";
+      s.onload = function () { window.ZXing ? res() : rej(); };
+      s.onerror = rej;
+      document.head.appendChild(s);
+    });
+  }
+  async function startCam() {
+    audio();
+    camMsg("");
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+      camMsg("Kamera ist hier nicht verfügbar. Die Seite muss über https (oder als lokale Datei in Chrome/Edge) geöffnet werden.");
+      return;
+    }
+    var video = $("camVideo");
+    var useNative = false;
+    if ("BarcodeDetector" in window) {
+      try { var fm = await BarcodeDetector.getSupportedFormats(); useNative = fm && fm.length > 0; } catch (e) { useNative = false; }
+    }
+    try {
+      cam.stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: { ideal: "environment" }, width: { ideal: 1280 }, height: { ideal: 720 } }, audio: false });
+    } catch (e) {
+      camMsg("Kamerazugriff wurde verweigert oder ist in dieser Ansicht gesperrt. Kamera im Browser erlauben oder die Datei direkt öffnen.");
+      return;
+    }
+    video.srcObject = cam.stream;
+    try { await video.play(); } catch (e) {}
+    $("camWrap").hidden = false;
+    cam.on = true;
+    $("btnCam").textContent = "Kamera-Scan stoppen";
+    if (useNative) {
+      var det = new BarcodeDetector();
+      var busy = false;
+      cam.timer = setInterval(async function () {
+        if (busy || video.readyState < 2) return;
+        busy = true;
+        try { var r = await det.detect(video); if (r && r.length) camHit(r[0].rawValue); } catch (e) {}
+        busy = false;
+      }, 180);
+    } else {
+      try { await loadZxing(); } catch (e) {
+        camMsg("Die Barcode-Erkennung für die Kamera konnte nicht geladen werden (Internetverbindung nötig).");
+        stopCam(); return;
+      }
+      var hints = new Map();
+      hints.set(ZXing.DecodeHintType.TRY_HARDER, true);
+      cam.zx = new ZXing.BrowserMultiFormatReader(hints, 200);
+      cam.zx.decodeFromStream(cam.stream, video, function (result) { if (result) camHit(result.getText()); });
+    }
+  }
+  function stopCam() {
+    if (cam.timer) clearInterval(cam.timer);
+    if (cam.zx) { try { cam.zx.reset(); } catch (e) {} }
+    if (cam.stream) cam.stream.getTracks().forEach(function (t) { t.stop(); });
+    cam = { on: false, stream: null, timer: null, zx: null, last: "", lastT: 0 };
+    $("camWrap").hidden = true;
+    $("btnCam").textContent = "Kamera-Scan starten";
+  }
+  $("btnCam").addEventListener("click", function () { cam.on ? stopCam() : startCam(); });
+
+  // ---------- Start ----------
+  if (!load()) {
+    state.list = SAMPLE.map(function (r) { return { raw: r, key: norm(r), found: false, at: null }; });
+    state.sample = true;
+  }
+  bindOpt("optCase", "ci"); bindOpt("optSep", "sep"); bindOpt("optContains", "contains");
+  $("optRegex").value = state.opts.regex || "";
+  $("listInput").value = state.list.map(function (e) { return e.raw; }).join("\n");
+  rebuildSyntax(); renderAll();
+  var lastLog = state.log[state.log.length - 1];
+  if (lastLog) renderStatus(lastLog.raw, lastLog.result, lastLog.ref);
+  setFocusState();
+  focusScan();
+  if (navigator.wakeLock) { try { navigator.wakeLock.request("screen").catch(function () {}); } catch (e) {} }
+})();
+</script>
+</body></html>
