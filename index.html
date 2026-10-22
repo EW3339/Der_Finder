@@ -101,8 +101,9 @@ button.danger { color: var(--bad); }
 .scan.lost .dot { background: var(--accent); }
 #scanInput { font-size: 1.6rem; padding: 14px 16px; font-weight: 600; letter-spacing: 0.03em; }
 .camwrap { position: relative; border-radius: 4px; overflow: hidden; background: #000; max-width: 100%; }
-.camwrap video { display: block; width: 100%; max-height: 320px; object-fit: cover; }
-.camwrap .aim { position: absolute; inset: 30% 12%; border: 2px solid var(--accent); border-radius: 4px; pointer-events: none; }
+.camwrap video { display: block; width: 100% !important; height: auto; }
+#camReader { width: 100%; }
+.camstat { font-size: 0.8rem; color: var(--muted); }
 .msg { font-size: 0.85rem; padding: 8px 10px; border-radius: 4px; background: var(--bad-bg); color: var(--bad); }
 
 /* Status */
@@ -192,12 +193,16 @@ button.danger { color: var(--bad); }
         <h2 id="hScan">Scannen <span class="scanstate"><span class="dot"></span><span id="scanState">Bereit</span></span></h2>
         <input type="text" id="scanInput" autocomplete="off" spellcheck="false" autocapitalize="off" placeholder="Hier scannen …" aria-label="Scanfeld">
         <div class="row">
+          <button class="primary" id="btnCheck">Prüfen</button>
           <button id="btnCam">Kamera-Scan starten</button>
           <div class="vol"><label for="vol">Lautstärke</label><input type="range" id="vol" min="0.05" max="1" step="0.05" value="0.6"></div>
           <button id="btnTest">Ton testen</button>
         </div>
         <div class="msg" id="camMsg" hidden></div>
-        <div class="camwrap" id="camWrap" hidden><video id="camVideo" playsinline muted></video><div class="aim"></div></div>
+        <div id="camWrap" hidden>
+          <div class="camwrap"><div id="camReader"></div></div>
+          <div class="camstat" id="camStat"></div>
+        </div>
       </section>
 
       <!-- Rechts unten: Status -->
@@ -349,10 +354,21 @@ button.danger { color: var(--bad); }
   // ---------- Töne ----------
   var ac = null, alarmTimer = null;
   function audio() {
-    if (!ac) { try { ac = new (window.AudioContext || window.webkitAudioContext)(); } catch (e) { ac = null; } }
-    if (ac && ac.state === "suspended") ac.resume();
+    if (!ac) {
+      // iOS: Wiedergabe auch bei Stummschalter (Safari 17+)
+      try { if (navigator.audioSession) navigator.audioSession.type = "playback"; } catch (e) {}
+      try { ac = new (window.AudioContext || window.webkitAudioContext)(); } catch (e) { ac = null; }
+    }
+    if (ac && ac.state !== "running") { try { ac.resume(); } catch (e) {} }
     return ac;
   }
+  // Mobile Browser geben Ton erst nach einer Berührung frei: dabei einen stillen Puffer abspielen
+  function unlockAudio() {
+    var a = audio(); if (!a) return;
+    try { var b = a.createBuffer(1, 1, 22050), src = a.createBufferSource(); src.buffer = b; src.connect(a.destination); src.start(0); } catch (e) {}
+  }
+  ["pointerdown", "touchend", "keydown", "click"].forEach(function (t) { document.addEventListener(t, unlockAudio, true); });
+  function buzz(p) { if (navigator.vibrate) { try { navigator.vibrate(p); } catch (e) {} } }
   function tone(freq, dur, type, delay) {
     var a = audio(); if (!a) return;
     var t0 = a.currentTime + (delay || 0);
@@ -365,10 +381,10 @@ button.danger { color: var(--bad); }
     o.connect(g); g.connect(a.destination); o.start(t0); o.stop(t0 + dur + 0.02);
   }
   var SOUND = {
-    nohit: function () { tone(660, 0.12, "sine"); },
-    syntax: function () { tone(200, 0.18, "square"); tone(200, 0.18, "square", 0.24); },
-    again: function () { tone(990, 0.08, "triangle"); tone(990, 0.08, "triangle", 0.13); },
-    dup: function () { tone(520, 0.08, "sine"); tone(440, 0.1, "sine", 0.1); }
+    nohit: function () { tone(660, 0.12, "sine"); buzz(60); },
+    syntax: function () { tone(200, 0.18, "square"); tone(200, 0.18, "square", 0.24); buzz([150, 90, 150]); },
+    again: function () { tone(990, 0.08, "triangle"); tone(990, 0.08, "triangle", 0.13); buzz([50, 60, 50]); },
+    dup: function () { tone(520, 0.08, "sine"); tone(440, 0.1, "sine", 0.1); buzz([50, 60, 50]); }
   };
   function startAlarm() {
     stopAlarm();
@@ -417,7 +433,7 @@ button.danger { color: var(--bad); }
     $("alarm").hidden = false;
     $("btnAck").focus();
     startAlarm();
-    if (navigator.vibrate) { try { navigator.vibrate([300, 150, 300, 150, 300]); } catch (e) {} }
+    buzz([300, 150, 300, 150, 300, 150, 300]);
   }
   function ackAlarm() {
     if (!alarmOn) return;
@@ -598,7 +614,7 @@ button.danger { color: var(--bad); }
   });
 
   // ---------- Kamera ----------
-  var cam = { on: false, stream: null, timer: null, zx: null, last: "", lastT: 0 };
+  var cam = { on: false, reader: null, last: "", lastT: 0, frames: 0, statTimer: null };
   function camMsg(t) { $("camMsg").textContent = t || ""; $("camMsg").hidden = !t; }
   function camHit(text) {
     var now = Date.now();
@@ -607,68 +623,86 @@ button.danger { color: var(--bad); }
     cam.last = text; cam.lastT = now;
     processScan(text, "Kamera");
   }
-  function loadZxing() {
+  function loadScript(urls) {
     return new Promise(function (res, rej) {
-      if (window.ZXing) return res();
-      var s = document.createElement("script");
-      s.src = "https://cdn.jsdelivr.net/npm/@zxing/library@0.21.3/umd/index.min.js";
-      s.onload = function () { window.ZXing ? res() : rej(); };
-      s.onerror = rej;
-      document.head.appendChild(s);
+      if (window.Html5Qrcode) return res();
+      var i = 0;
+      (function next() {
+        if (i >= urls.length) return rej();
+        var s = document.createElement("script");
+        s.src = urls[i++];
+        s.onload = function () { window.Html5Qrcode ? res() : next(); };
+        s.onerror = next;
+        document.head.appendChild(s);
+      })();
     });
   }
   async function startCam() {
-    audio();
+    unlockAudio();
     camMsg("");
-    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-      camMsg("Kamera ist hier nicht verfügbar. Die Seite muss über https (oder als lokale Datei in Chrome/Edge) geöffnet werden.");
+    if (!window.isSecureContext || !navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+      camMsg("Kamera ist hier nicht verfügbar. Die Seite muss über https geöffnet werden, z. B. über die GitHub-Pages-Adresse.");
       return;
     }
-    var video = $("camVideo");
-    var useNative = false;
-    if ("BarcodeDetector" in window) {
-      try { var fm = await BarcodeDetector.getSupportedFormats(); useNative = fm && fm.length > 0; } catch (e) { useNative = false; }
-    }
+    $("btnCam").disabled = true;
     try {
-      cam.stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: { ideal: "environment" }, width: { ideal: 1280 }, height: { ideal: 720 } }, audio: false });
+      await loadScript([
+        "html5-qrcode.min.js",
+        "https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js",
+        "https://cdn.jsdelivr.net/npm/html5-qrcode@2.3.8/html5-qrcode.min.js"
+      ]);
     } catch (e) {
-      camMsg("Kamerazugriff wurde verweigert oder ist in dieser Ansicht gesperrt. Kamera im Browser erlauben oder die Datei direkt öffnen.");
+      $("btnCam").disabled = false;
+      camMsg("Die Barcode-Erkennung für die Kamera konnte nicht geladen werden. Beim ersten Start ist eine Internetverbindung nötig.");
       return;
     }
-    video.srcObject = cam.stream;
-    try { await video.play(); } catch (e) {}
+    var F = Html5QrcodeSupportedFormats;
+    var formats = ["CODE_128", "CODE_39", "CODE_93", "CODABAR", "EAN_13", "EAN_8", "UPC_A", "UPC_E", "ITF", "DATA_MATRIX", "QR_CODE", "PDF_417", "AZTEC"]
+      .map(function (k) { return F[k]; }).filter(function (v) { return v !== undefined; });
     $("camWrap").hidden = false;
-    cam.on = true;
-    $("btnCam").textContent = "Kamera-Scan stoppen";
-    if (useNative) {
-      var det = new BarcodeDetector();
-      var busy = false;
-      cam.timer = setInterval(async function () {
-        if (busy || video.readyState < 2) return;
-        busy = true;
-        try { var r = await det.detect(video); if (r && r.length) camHit(r[0].rawValue); } catch (e) {}
-        busy = false;
-      }, 180);
-    } else {
-      try { await loadZxing(); } catch (e) {
-        camMsg("Die Barcode-Erkennung für die Kamera konnte nicht geladen werden (Internetverbindung nötig).");
-        stopCam(); return;
-      }
-      var hints = new Map();
-      hints.set(ZXing.DecodeHintType.TRY_HARDER, true);
-      cam.zx = new ZXing.BrowserMultiFormatReader(hints, 200);
-      cam.zx.decodeFromStream(cam.stream, video, function (result) { if (result) camHit(result.getText()); });
+    cam.reader = new Html5Qrcode("camReader", { formatsToSupport: formats, verbose: false, experimentalFeatures: { useBarCodeDetectorIfSupported: true } });
+    cam.frames = 0;
+    try {
+      await cam.reader.start(
+        { facingMode: "environment" },
+        {
+          fps: 12,
+          // breites Suchfenster für Strichcodes, hoch genug für DataMatrix
+          qrbox: function (w, h) { var bw = Math.floor(w * 0.88), bh = Math.floor(Math.min(h * 0.6, bw * 0.6)); return { width: bw, height: Math.max(bh, 80) }; },
+          videoConstraints: { facingMode: "environment", width: { ideal: 1920 }, height: { ideal: 1080 } }
+        },
+        function (text) { cam.frames++; camHit(text); },
+        function () { cam.frames++; }
+      );
+    } catch (e) {
+      $("btnCam").disabled = false;
+      try { cam.reader.clear(); } catch (e2) {}
+      cam.reader = null; $("camWrap").hidden = true;
+      camMsg("Kamerazugriff wurde verweigert oder ist gesperrt. Bitte die Kamera für diese Seite im Browser erlauben. (" + (e && (e.name || e.message || e)) + ")");
+      return;
     }
+    cam.on = true;
+    $("btnCam").disabled = false;
+    $("btnCam").textContent = "Kamera-Scan stoppen";
+    var native = "BarcodeDetector" in window ? "Browser-Erkennung" : "ZXing";
+    cam.statTimer = setInterval(function () {
+      $("camStat").textContent = "Erkennung läuft (" + native + "), " + cam.frames + " Bilder geprüft. Code in den hellen Rahmen halten, ca. 10 bis 20 cm Abstand.";
+    }, 500);
   }
-  function stopCam() {
-    if (cam.timer) clearInterval(cam.timer);
-    if (cam.zx) { try { cam.zx.reset(); } catch (e) {} }
-    if (cam.stream) cam.stream.getTracks().forEach(function (t) { t.stop(); });
-    cam = { on: false, stream: null, timer: null, zx: null, last: "", lastT: 0 };
+  async function stopCam() {
+    if (cam.statTimer) clearInterval(cam.statTimer);
+    if (cam.reader) { try { await cam.reader.stop(); } catch (e) {} try { cam.reader.clear(); } catch (e) {} }
+    cam = { on: false, reader: null, last: "", lastT: 0, frames: 0, statTimer: null };
     $("camWrap").hidden = true;
+    $("camStat").textContent = "";
     $("btnCam").textContent = "Kamera-Scan starten";
   }
   $("btnCam").addEventListener("click", function () { cam.on ? stopCam() : startCam(); });
+  $("btnCheck").addEventListener("click", function () {
+    var v = scanInput.value; scanInput.value = "";
+    if (v.trim()) processScan(v, "Hand");
+    focusScan();
+  });
 
   // ---------- Start ----------
   if (!load()) {
