@@ -103,6 +103,8 @@ button.danger { color: var(--bad); }
 .camwrap { position: relative; border-radius: 4px; overflow: hidden; background: #000; max-width: 100%; }
 .camwrap video { display: block; width: 100% !important; height: auto; }
 #camReader { width: 100%; }
+#camCtl:empty { display: none; }
+#photoReader { display: none; }
 .camstat { font-size: 0.8rem; color: var(--muted); }
 .msg { font-size: 0.85rem; padding: 8px 10px; border-radius: 4px; background: var(--bad-bg); color: var(--bad); }
 
@@ -195,12 +197,18 @@ button.danger { color: var(--bad); }
         <div class="row">
           <button class="primary" id="btnCheck">Prüfen</button>
           <button id="btnCam">Kamera-Scan starten</button>
+          <label class="btn" for="photoInput">Foto scannen</label>
+          <input type="file" id="photoInput" accept="image/*" capture="environment" hidden>
           <div class="vol"><label for="vol">Lautstärke</label><input type="range" id="vol" min="0.05" max="1" step="0.05" value="0.6"></div>
           <button id="btnTest">Ton testen</button>
         </div>
         <div class="msg" id="camMsg" hidden></div>
         <div id="camWrap" hidden>
           <div class="camwrap"><div id="camReader"></div></div>
+          <div class="row" id="camCtl">
+            <button id="btnTorch" hidden>Licht an</button>
+            <div class="vol" id="zoomBox" hidden><label for="zoom">Zoom</label><input type="range" id="zoom" min="1" max="5" step="0.1" value="1"></div>
+          </div>
           <div class="camstat" id="camStat"></div>
         </div>
       </section>
@@ -239,6 +247,7 @@ button.danger { color: var(--bad); }
   </div>
 </div>
 
+<div id="photoReader"></div>
 <div class="alarm" id="alarm" hidden role="alertdialog" aria-labelledby="alarmTitle">
   <div class="alarm-box">
     <div class="big" id="alarmTitle">Gefunden!</div>
@@ -637,6 +646,67 @@ button.danger { color: var(--bad); }
       })();
     });
   }
+  function ensureLib() {
+    return loadScript([
+      "html5-qrcode.min.js",
+      "https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js",
+      "https://cdn.jsdelivr.net/npm/html5-qrcode@2.3.8/html5-qrcode.min.js"
+    ]);
+  }
+  function newReader(id) {
+    var F = Html5QrcodeSupportedFormats;
+    var formats = ["CODE_128", "CODE_39", "CODE_93", "CODABAR", "EAN_13", "EAN_8", "UPC_A", "UPC_E", "ITF", "DATA_MATRIX", "QR_CODE", "PDF_417", "AZTEC"]
+      .map(function (k) { return F[k]; }).filter(function (v) { return v !== undefined; });
+    return new Html5Qrcode(id, { formatsToSupport: formats, verbose: false, experimentalFeatures: { useBarCodeDetectorIfSupported: true } });
+  }
+  // Zoom und Licht, falls die Kamera sie anbietet (meist Android/Chrome)
+  function setupCamControls() {
+    var caps = {};
+    try { caps = cam.reader.getRunningTrackCapabilities() || {}; } catch (e) {}
+    if (caps.torch) { $("btnTorch").hidden = false; }
+    if (caps.zoom && caps.zoom.max > 1) {
+      var z = $("zoom");
+      z.min = caps.zoom.min || 1; z.max = Math.min(caps.zoom.max, 8); z.step = caps.zoom.step || 0.1;
+      z.value = Math.min(2, z.max);
+      $("zoomBox").hidden = false;
+      applyZoom();
+    }
+  }
+  function applyZoom() {
+    if (!cam.reader) return;
+    try { cam.reader.applyVideoConstraints({ advanced: [{ zoom: parseFloat($("zoom").value) }] }).catch(function () {}); } catch (e) {}
+  }
+  $("zoom").addEventListener("input", applyZoom);
+  $("btnTorch").addEventListener("click", function () {
+    if (!cam.reader) return;
+    cam.torch = !cam.torch;
+    try { cam.reader.applyVideoConstraints({ advanced: [{ torch: cam.torch }] }).catch(function () {}); } catch (e) {}
+    this.textContent = cam.torch ? "Licht aus" : "Licht an";
+  });
+  // Foto-Modus: Handykamera macht ein scharfes Einzelbild in voller Auflösung
+  $("photoInput").addEventListener("change", async function (ev) {
+    var f = ev.target.files && ev.target.files[0];
+    ev.target.value = "";
+    if (!f) return;
+    unlockAudio(); camMsg("");
+    var text = null;
+    if ("BarcodeDetector" in window) {
+      try {
+        var bmp = await createImageBitmap(f);
+        var r = await new BarcodeDetector().detect(bmp);
+        if (r && r.length) text = r[0].rawValue;
+      } catch (e) {}
+    }
+    if (!text) {
+      try { await ensureLib(); } catch (e) { camMsg("Die Barcode-Erkennung konnte nicht geladen werden."); return; }
+      if (cam.on) await stopCam();
+      var pr = newReader("photoReader");
+      try { text = await pr.scanFile(f, false); } catch (e) { text = null; }
+      try { pr.clear(); } catch (e) {}
+    }
+    if (text) processScan(text, "Foto");
+    else { camMsg("Im Foto wurde kein Code erkannt. Näher ran, Code möglichst groß und scharf im Bild, Spiegelungen vermeiden."); SOUND.syntax(); }
+  });
   async function startCam() {
     unlockAudio();
     camMsg("");
@@ -646,21 +716,14 @@ button.danger { color: var(--bad); }
     }
     $("btnCam").disabled = true;
     try {
-      await loadScript([
-        "html5-qrcode.min.js",
-        "https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js",
-        "https://cdn.jsdelivr.net/npm/html5-qrcode@2.3.8/html5-qrcode.min.js"
-      ]);
+      await ensureLib();
     } catch (e) {
       $("btnCam").disabled = false;
       camMsg("Die Barcode-Erkennung für die Kamera konnte nicht geladen werden. Beim ersten Start ist eine Internetverbindung nötig.");
       return;
     }
-    var F = Html5QrcodeSupportedFormats;
-    var formats = ["CODE_128", "CODE_39", "CODE_93", "CODABAR", "EAN_13", "EAN_8", "UPC_A", "UPC_E", "ITF", "DATA_MATRIX", "QR_CODE", "PDF_417", "AZTEC"]
-      .map(function (k) { return F[k]; }).filter(function (v) { return v !== undefined; });
     $("camWrap").hidden = false;
-    cam.reader = new Html5Qrcode("camReader", { formatsToSupport: formats, verbose: false, experimentalFeatures: { useBarCodeDetectorIfSupported: true } });
+    cam.reader = newReader("camReader");
     cam.frames = 0;
     try {
       await cam.reader.start(
@@ -682,6 +745,7 @@ button.danger { color: var(--bad); }
       return;
     }
     cam.on = true;
+    setupCamControls();
     $("btnCam").disabled = false;
     $("btnCam").textContent = "Kamera-Scan stoppen";
     var native = "BarcodeDetector" in window ? "Browser-Erkennung" : "ZXing";
@@ -694,6 +758,7 @@ button.danger { color: var(--bad); }
     if (cam.reader) { try { await cam.reader.stop(); } catch (e) {} try { cam.reader.clear(); } catch (e) {} }
     cam = { on: false, reader: null, last: "", lastT: 0, frames: 0, statTimer: null };
     $("camWrap").hidden = true;
+    $("btnTorch").hidden = true; $("btnTorch").textContent = "Licht an"; $("zoomBox").hidden = true;
     $("camStat").textContent = "";
     $("btnCam").textContent = "Kamera-Scan starten";
   }
