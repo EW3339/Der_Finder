@@ -54,7 +54,7 @@ body {
 header { display: flex; flex-direction: column; gap: 2px; border-bottom: 4px solid var(--accent); padding-bottom: 10px; }
 h1 { font-family: var(--font-display); font-weight: 800; font-size: clamp(2.6rem, 6vw, 4.2rem); line-height: 1; margin: 0; letter-spacing: 0.01em; text-transform: uppercase; }
 .disclaimer { font-size: 0.8rem; color: var(--muted); margin: 0; display: flex; justify-content: space-between; gap: 4px 16px; flex-wrap: wrap; }
-.ver { font-family: var(--font-mono); font-size: 0.72rem; opacity: 0.8; }
+.ver { font: 400 0.72rem var(--font-mono); color: var(--muted); text-transform: none; letter-spacing: 0; vertical-align: baseline; }
 .grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.25fr); gap: 16px; align-items: start; }
 .right { display: flex; flex-direction: column; gap: 16px; min-width: 0; }
 @media (max-width: 860px) { .grid { grid-template-columns: minmax(0, 1fr); } .right { order: -1; } }
@@ -161,8 +161,8 @@ button.attn { box-shadow: 0 0 0 3px var(--bad); }
 
 <div class="wrap">
   <header>
-    <h1>Der Finder</h1>
-    <div class="disclaimer"><span>Privatentwicklung! Ohne Gewähr!</span><span>Idee: E.W. Code: C.C. <span class="ver">V_0.6</span></span></div>
+    <h1>Der Finder <span class="ver">V_0.7</span></h1>
+    <div class="disclaimer"><span>Privatentwicklung! Ohne Gewähr!</span><span>Idee: E.W. Code: C.C.</span></div>
   </header>
 
   <div class="grid">
