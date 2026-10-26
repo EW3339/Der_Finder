@@ -54,6 +54,7 @@ body {
 header { display: flex; flex-direction: column; gap: 2px; border-bottom: 4px solid var(--accent); padding-bottom: 10px; }
 h1 { font-family: var(--font-display); font-weight: 800; font-size: clamp(2.6rem, 6vw, 4.2rem); line-height: 1; margin: 0; letter-spacing: 0.01em; text-transform: uppercase; }
 .disclaimer { font-size: 0.8rem; color: var(--muted); margin: 0; display: flex; justify-content: space-between; gap: 4px 16px; flex-wrap: wrap; }
+.ver { font-family: var(--font-mono); font-size: 0.72rem; opacity: 0.8; }
 .grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.25fr); gap: 16px; align-items: start; }
 .right { display: flex; flex-direction: column; gap: 16px; min-width: 0; }
 @media (max-width: 860px) { .grid { grid-template-columns: minmax(0, 1fr); } .right { order: -1; } }
@@ -68,10 +69,12 @@ button, .btn { font: 600 0.9rem var(--font-body); padding: 8px 14px; border-radi
 button:hover, .btn:hover { border-color: var(--muted); }
 button.primary { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
 button.danger { color: var(--bad); }
+button.attn { box-shadow: 0 0 0 3px var(--bad); }
 .opts { display: grid; gap: 4px; font-size: 0.88rem; }
 .opts label { display: flex; gap: 8px; align-items: flex-start; }
 .opts input { margin-top: 3px; }
 .hint { font-size: 0.82rem; color: var(--muted); margin: 0; }
+.pending { color: var(--bad); font-weight: 600; }
 .patterns { font-family: var(--font-mono); font-size: 0.82rem; display: flex; flex-wrap: wrap; gap: 6px; }
 .patterns span { background: var(--info-bg); color: var(--info); padding: 2px 6px; border-radius: 3px; }
 .sample { background: var(--info-bg); color: var(--info); padding: 8px 10px; border-radius: 4px; font-size: 0.85rem; }
@@ -123,8 +126,8 @@ button.danger { color: var(--bad); }
 .current.r-found .res { color: var(--ok); }
 .current.r-syntax { background: var(--bad-bg); border-color: var(--bad); }
 .current.r-syntax .res { color: var(--bad); }
-:root[data-mode="check"] .current.r-nohit, :root[data-mode="check"] .current.r-dup { background: var(--bad-bg); border-color: var(--bad); }
-:root[data-mode="check"] .current.r-nohit .res, :root[data-mode="check"] .current.r-dup .res { color: var(--bad); }
+.current[data-m="check"].r-nohit, .current[data-m="check"].r-dup { background: var(--bad-bg); border-color: var(--bad); }
+.current[data-m="check"].r-nohit .res, .current[data-m="check"].r-dup .res { color: var(--bad); }
 .current.r-again, .current.r-dup { background: var(--info-bg); border-color: var(--info); }
 .current.r-again .res, .current.r-dup .res { color: var(--info); }
 .counts { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; }
@@ -159,7 +162,7 @@ button.danger { color: var(--bad); }
 <div class="wrap">
   <header>
     <h1>Der Finder</h1>
-    <div class="disclaimer"><span>Privatentwicklung! Ohne Gewähr!</span><span>Idee: E.W. Code: C.C.</span></div>
+    <div class="disclaimer"><span>Privatentwicklung! Ohne Gewähr!</span><span>Idee: E.W. Code: C.C. <span class="ver">V_0.6</span></span></div>
   </header>
 
   <div class="grid">
@@ -173,7 +176,13 @@ button.danger { color: var(--bad); }
         <button class="primary" id="btnApply">Liste übernehmen</button>
         <label class="btn" for="fileInput">Datei laden (.txt / .csv)</label>
         <input type="file" id="fileInput" accept=".txt,.csv,.tsv,text/plain,text/csv" hidden>
-        <button id="btnClearList">Textfeld leeren</button>
+        <button class="danger" id="btnClearList">Liste löschen</button>
+      </div>
+      <div class="hint pending" id="pendingNote" hidden>Die Liste im Textfeld ist geändert, aber noch nicht übernommen.</div>
+      <div class="confirm" id="clearConfirm" hidden>
+        Liste, Zähler und Protokoll komplett löschen?
+        <button class="danger" id="btnClearYes">Ja, alles löschen</button>
+        <button id="btnClearNo">Abbrechen</button>
       </div>
       <div class="opts">
         <label><input type="checkbox" id="optCase" checked> Groß-/Kleinschreibung ignorieren</label>
@@ -229,7 +238,7 @@ button.danger { color: var(--bad); }
       <section class="panel" aria-labelledby="hStatus">
         <h2 id="hStatus">Status</h2>
         <div class="current" id="current" aria-live="polite">
-          <span class="lbl">Aktuelle Seriennummer</span>
+          <span class="lbl">Aktuelle Seriennummer · Modus: <b id="modeLabel">Suchen</b></span>
           <span class="val" id="curVal">–</span>
           <span class="res" id="curRes">Noch nichts gescannt</span>
         </div>
@@ -284,8 +293,11 @@ button.danger { color: var(--bad); }
     opts: { ci: true, sep: false, contains: false, regex: "", mode: "search" },
     sample: false
   };
+  var DEFAULT_OPTS = { ci: true, sep: false, contains: false, regex: "", mode: "search" };
   var filter = "all";
   var alarmOn = false;
+  var mode = "search";   // "search" = Alarm bei Treffer, "check" = abhaken ohne Alarm
+  var touch = window.matchMedia && window.matchMedia("(pointer: coarse)").matches;
 
   function save() {
     try { localStorage.setItem(KEY, JSON.stringify(state)); } catch (e) {}
@@ -293,7 +305,13 @@ button.danger { color: var(--bad); }
   function load() {
     try {
       var s = JSON.parse(localStorage.getItem(KEY) || "null");
-      if (s && Array.isArray(s.list)) { state = Object.assign(state, s); return true; }
+      if (s && Array.isArray(s.list)) {
+        state.list = s.list;
+        state.log = Array.isArray(s.log) ? s.log : [];
+        state.opts = Object.assign({}, DEFAULT_OPTS, s.opts || {});
+        state.sample = !!s.sample;
+        return true;
+      }
     } catch (e) {}
     return false;
   }
@@ -314,7 +332,7 @@ button.danger { color: var(--bad); }
     shapes = {};
     state.list.forEach(function (e) { var sh = shape(e.key); shapes[sh] = (shapes[sh] || 0) + 1; });
     userRe = null;
-    var r = state.opts.regex.trim();
+    var r = String(state.opts.regex || "").trim();
     if (r) { try { userRe = new RegExp(r, state.opts.ci ? "i" : ""); } catch (e) { userRe = "bad"; } }
     var box = $("patterns");
     box.textContent = "";
@@ -346,12 +364,18 @@ button.danger { color: var(--bad); }
     });
     return out;
   }
+  function listText() { return state.list.map(function (e) { return e.raw; }).join("\n"); }
+  function clearCurrent() {
+    $("current").className = "current"; $("curVal").textContent = "–"; $("curRes").textContent = "Noch nichts gescannt";
+  }
   function applyList(text, isSample) {
     var old = {};
     state.list.forEach(function (e) { if (e.found) old[e.key] = e.at; });
     state.list = parseList(text).map(function (e) { if (old[e.key]) { e.found = true; e.at = old[e.key]; } return e; });
     state.sample = !!isSample;
     rebuildSyntax(); renderAll(); save();
+    $("listInput").value = listText();
+    checkPending();
   }
   function rekeyList() {
     var seen = {};
@@ -426,8 +450,8 @@ button.danger { color: var(--bad); }
     dup: { chip: "dup", text: "schon gescannt, nicht gesucht" },
     syntax: { chip: "syntax", text: "Syntax passt nicht zur Liste" }
   };
-  function resText(r) {
-    if (state.opts.mode === "check") {
+  function resText(r, m) {
+    if ((m || mode) === "check") {
       if (r === "found") return "in Liste, abgehakt";
       if (r === "nohit") return "NICHT IN DER LISTE";
       if (r === "dup") return "schon gescannt, nicht in der Liste";
@@ -450,20 +474,24 @@ button.danger { color: var(--bad); }
       var before = state.log.some(function (l) { return norm(l.raw) === key; });
       result = before ? "dup" : "nohit";
     }
-    state.log.push({ t: Date.now(), raw: raw.trim(), result: result, ref: ref, src: source || "" });
+    state.log.push({ t: Date.now(), raw: raw.trim(), result: result, ref: ref, src: source || "", mode: mode });
     save();
-    renderStatus(raw.trim(), result, ref);
+    renderStatus(raw.trim(), result, ref, mode);
     renderList(); renderLog();
-    if (state.opts.mode === "check") {
+    if (mode === "check") {
+      // Abhaken: nur Bestätigungston, nie ein Alarm
       if (result === "found") SOUND.ok();
       else if (result === "nohit" || result === "dup") SOUND.warn();
       else SOUND[result]();
+    } else if (result === "found") {
+      showAlarm(raw.trim(), ref);
+    } else {
+      SOUND[result]();
     }
-    else if (result === "found") showAlarm(raw.trim(), ref);
-    else SOUND[result]();
   }
 
   function showAlarm(code, ref) {
+    if (mode !== "search") { SOUND.ok(); return; }
     alarmOn = true;
     $("alarmCode").textContent = code;
     $("alarmInfo").textContent = ref && norm(ref) !== norm(code) ? "Listeneintrag: " + ref : "";
@@ -493,7 +521,7 @@ button.danger { color: var(--bad); }
     var dup = state.log.filter(function (l) { return l.result === "dup" || l.result === "again"; }).length;
     return { scanned: state.log.length, found: found, open: state.list.length - found, syntax: syn, dup: dup };
   }
-  function renderStatus(code, result, ref) {
+  function renderStatus(code, result, ref, m) {
     var c = counts();
     $("nScanned").textContent = c.scanned;
     $("nFound").textContent = c.found;
@@ -506,7 +534,8 @@ button.danger { color: var(--bad); }
       var cur = $("current");
       cur.className = "current r-" + result;
       $("curVal").textContent = code;
-      $("curRes").textContent = resText(result) + (ref && result !== "found" && norm(ref) !== norm(code) ? " (" + ref + ")" : "");
+      cur.setAttribute("data-m", m || mode);
+      $("curRes").textContent = resText(result, m) + (ref && result !== "found" && norm(ref) !== norm(code) ? " (" + ref + ")" : "");
     }
   }
   function renderList() {
@@ -537,7 +566,7 @@ button.danger { color: var(--bad); }
       var a = document.createElement("td"); a.className = "t"; a.textContent = fmtTime(l.t);
       var b = document.createElement("td"); b.className = "code"; b.textContent = l.raw;
       var c = document.createElement("td");
-      var chip = document.createElement("span"); chip.className = "chip " + RESULT[l.result].chip; chip.textContent = resText(l.result);
+      var chip = document.createElement("span"); chip.className = "chip " + RESULT[l.result].chip; chip.textContent = resText(l.result, l.mode);
       c.appendChild(chip);
       tr.appendChild(a); tr.appendChild(b); tr.appendChild(c); frag.appendChild(tr);
     }
@@ -547,7 +576,11 @@ button.danger { color: var(--bad); }
 
   // ---------- Fokus ----------
   var scanInput = $("scanInput");
-  function focusScan() { if (!alarmOn) scanInput.focus({ preventScroll: true }); }
+  function focusScan(force) {
+    if (alarmOn) return;
+    if (touch && !force) return;   // am Handy nicht ständig die Tastatur aufklappen
+    scanInput.focus({ preventScroll: true });
+  }
   function setFocusState() {
     var on = document.activeElement === scanInput;
     $("scanPanel").className = "panel scan " + (on ? "ready" : "lost");
@@ -556,7 +589,7 @@ button.danger { color: var(--bad); }
   scanInput.addEventListener("focus", setFocusState);
   scanInput.addEventListener("blur", setFocusState);
   $("scanPanel").addEventListener("click", function (ev) {
-    if (!ev.target.closest("button, input[type=range], label")) focusScan();
+    if (!ev.target.closest("button, input[type=range], label")) focusScan(true);
   });
 
   scanInput.addEventListener("keydown", function (ev) {
@@ -582,7 +615,23 @@ button.danger { color: var(--bad); }
 
   // ---------- Bedienelemente links ----------
   $("btnApply").addEventListener("click", function () { applyList($("listInput").value, false); });
-  $("btnClearList").addEventListener("click", function () { $("listInput").value = ""; $("listInput").focus(); });
+  function checkPending() {
+    var typed = parseList($("listInput").value).map(function (e) { return e.key; }).join("\n");
+    var pending = typed !== state.list.map(function (e) { return e.key; }).join("\n");
+    $("pendingNote").hidden = !pending;
+    $("btnApply").classList.toggle("attn", pending);
+  }
+  $("listInput").addEventListener("input", checkPending);
+  $("btnClearList").addEventListener("click", function () { $("clearConfirm").hidden = false; });
+  $("btnClearNo").addEventListener("click", function () { $("clearConfirm").hidden = true; });
+  $("btnClearYes").addEventListener("click", function () {
+    state.list = []; state.log = []; state.sample = false;
+    $("listInput").value = "";
+    $("clearConfirm").hidden = true;
+    clearCurrent();
+    rebuildSyntax(); renderAll(); checkPending(); save();
+    $("listInput").focus();
+  });
   $("fileInput").addEventListener("change", function (ev) {
     var f = ev.target.files && ev.target.files[0]; if (!f) return;
     var r = new FileReader();
@@ -622,7 +671,7 @@ button.danger { color: var(--bad); }
   function logCsv() {
     var rows = [["Zeit", "Code", "Ergebnis", "Listeneintrag", "Quelle"]];
     state.log.forEach(function (l) {
-      rows.push([new Date(l.t).toLocaleString("de-DE"), l.raw, RESULT[l.result].text, l.ref || "", l.src || ""]);
+      rows.push([new Date(l.t).toLocaleString("de-DE"), l.raw, resText(l.result, l.mode), l.ref || "", l.src || ""]);
     });
     return rows.map(function (r) { return r.map(function (c) { return '"' + String(c).replace(/"/g, '""') + '"'; }).join(";"); }).join("\r\n");
   }
@@ -643,7 +692,7 @@ button.danger { color: var(--bad); }
   $("btnResetYes").addEventListener("click", function () {
     state.log = []; state.list.forEach(function (e) { e.found = false; e.at = null; });
     $("resetConfirm").hidden = true;
-    $("current").className = "current"; $("curVal").textContent = "–"; $("curRes").textContent = "Noch nichts gescannt";
+    clearCurrent();
     save(); renderAll(); focusScan();
   });
   $("btnTest").addEventListener("click", function () {
@@ -803,26 +852,28 @@ button.danger { color: var(--bad); }
     state.sample = true;
   }
   function setMode(m) {
-    state.opts.mode = m;
-    ["modeSearch", "modeCheck"].forEach(function (id) { $(id).setAttribute("aria-pressed", $(id).getAttribute("data-m") === m ? "true" : "false"); });
-    document.documentElement.setAttribute("data-mode", m);
-    save(); renderLog();
-    var last = state.log[state.log.length - 1];
-    if (last) renderStatus(last.raw, last.result, last.ref);
+    mode = m === "check" ? "check" : "search";
+    state.opts.mode = mode;
+    $("modeSearch").setAttribute("aria-pressed", mode === "search" ? "true" : "false");
+    $("modeCheck").setAttribute("aria-pressed", mode === "check" ? "true" : "false");
+    $("modeLabel").textContent = mode === "check" ? "Abhaken" : "Suchen";
+    save();
     focusScan();
   }
   $("modeSearch").addEventListener("click", function () { setMode("search"); });
   $("modeCheck").addEventListener("click", function () { setMode("check"); });
   bindOpt("optCase", "ci"); bindOpt("optSep", "sep"); bindOpt("optContains", "contains");
   $("optRegex").value = state.opts.regex || "";
-  $("listInput").value = state.list.map(function (e) { return e.raw; }).join("\n");
+  $("listInput").value = listText();
+  setMode(state.opts.mode);
   rebuildSyntax(); renderAll();
   var lastLog = state.log[state.log.length - 1];
-  if (lastLog) renderStatus(lastLog.raw, lastLog.result, lastLog.ref);
-  setMode(state.opts.mode || "search");
+  if (lastLog) renderStatus(lastLog.raw, lastLog.result, lastLog.ref, lastLog.mode);
   setFocusState();
   focusScan();
-  if (navigator.wakeLock) { try { navigator.wakeLock.request("screen").catch(function () {}); } catch (e) {} }
+  function keepAwake() { if (navigator.wakeLock && document.visibilityState === "visible") { try { navigator.wakeLock.request("screen").catch(function () {}); } catch (e) {} } }
+  document.addEventListener("visibilitychange", keepAwake);
+  keepAwake();
 })();
 </script>
 </body></html>
