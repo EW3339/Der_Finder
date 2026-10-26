@@ -100,6 +100,12 @@ button.danger { color: var(--bad); }
 .scan.ready .dot { background: var(--ok); box-shadow: 0 0 0 4px var(--ok-bg); }
 .scan.lost .dot { background: var(--accent); }
 #scanInput { font-size: 1.6rem; padding: 14px 16px; font-weight: 600; letter-spacing: 0.03em; }
+.mode { display: grid; grid-template-columns: 1fr 1fr; gap: 0; border: 1px solid var(--line); border-radius: 4px; overflow: hidden; }
+.mode button { border: 0; border-radius: 0; flex-direction: column; align-items: flex-start; gap: 0; text-align: left; padding: 8px 12px; background: var(--bg); color: var(--muted); }
+.mode button + button { border-left: 1px solid var(--line); }
+.mode button b { font: 600 1.05rem var(--font-display); text-transform: uppercase; letter-spacing: 0.05em; }
+.mode button span { font-size: 0.76rem; font-weight: 400; }
+.mode button[aria-pressed=true] { background: var(--accent); color: var(--accent-ink); }
 .camwrap { position: relative; border-radius: 4px; overflow: hidden; background: #000; max-width: 100%; }
 .camwrap video { display: block; width: 100% !important; height: auto; }
 #camReader { width: 100%; }
@@ -117,6 +123,8 @@ button.danger { color: var(--bad); }
 .current.r-found .res { color: var(--ok); }
 .current.r-syntax { background: var(--bad-bg); border-color: var(--bad); }
 .current.r-syntax .res { color: var(--bad); }
+:root[data-mode="check"] .current.r-nohit, :root[data-mode="check"] .current.r-dup { background: var(--bad-bg); border-color: var(--bad); }
+:root[data-mode="check"] .current.r-nohit .res, :root[data-mode="check"] .current.r-dup .res { color: var(--bad); }
 .current.r-again, .current.r-dup { background: var(--info-bg); border-color: var(--info); }
 .current.r-again .res, .current.r-dup .res { color: var(--info); }
 .counts { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; }
@@ -193,6 +201,10 @@ button.danger { color: var(--bad); }
       <!-- Rechts oben: Scanfeld -->
       <section class="panel scan lost" id="scanPanel" aria-labelledby="hScan">
         <h2 id="hScan">Scannen <span class="scanstate"><span class="dot"></span><span id="scanState">Bereit</span></span></h2>
+        <div class="mode" role="group" aria-label="Modus">
+          <button id="modeSearch" data-m="search" aria-pressed="true"><b>Suchen</b><span>Wenige Teile heraussuchen, Alarm bei Treffer</span></button>
+          <button id="modeCheck" data-m="check" aria-pressed="false"><b>Abhaken</b><span>Viele Teile durchgehen, kurzer Ton, kein Alarm</span></button>
+        </div>
         <input type="text" id="scanInput" autocomplete="off" spellcheck="false" autocapitalize="off" placeholder="Hier scannen …" aria-label="Scanfeld">
         <div class="row">
           <button class="primary" id="btnCheck">Prüfen</button>
@@ -269,7 +281,7 @@ button.danger { color: var(--bad); }
   var state = {
     list: [],            // {raw, key, found, at}
     log: [],             // {t, raw, result, ref}
-    opts: { ci: true, sep: false, contains: false, regex: "" },
+    opts: { ci: true, sep: false, contains: false, regex: "", mode: "search" },
     sample: false
   };
   var filter = "all";
@@ -393,7 +405,10 @@ button.danger { color: var(--bad); }
     nohit: function () { tone(660, 0.12, "sine"); buzz(60); },
     syntax: function () { tone(200, 0.18, "square"); tone(200, 0.18, "square", 0.24); buzz([150, 90, 150]); },
     again: function () { tone(990, 0.08, "triangle"); tone(990, 0.08, "triangle", 0.13); buzz([50, 60, 50]); },
-    dup: function () { tone(520, 0.08, "sine"); tone(440, 0.1, "sine", 0.1); buzz([50, 60, 50]); }
+    dup: function () { tone(520, 0.08, "sine"); tone(440, 0.1, "sine", 0.1); buzz([50, 60, 50]); },
+    // Abhaken: Treffer = heller Doppelton aufwärts, Teil nicht in Liste = Warnton
+    ok: function () { tone(880, 0.09, "sine"); tone(1320, 0.14, "sine", 0.1); buzz(80); },
+    warn: function () { tone(330, 0.25, "sawtooth"); tone(247, 0.3, "sawtooth", 0.28); buzz([250, 100, 250]); }
   };
   function startAlarm() {
     stopAlarm();
@@ -411,6 +426,14 @@ button.danger { color: var(--bad); }
     dup: { chip: "dup", text: "schon gescannt, nicht gesucht" },
     syntax: { chip: "syntax", text: "Syntax passt nicht zur Liste" }
   };
+  function resText(r) {
+    if (state.opts.mode === "check") {
+      if (r === "found") return "in Liste, abgehakt";
+      if (r === "nohit") return "NICHT IN DER LISTE";
+      if (r === "dup") return "schon gescannt, nicht in der Liste";
+    }
+    return RESULT[r].text;
+  }
   function processScan(raw, source) {
     if (alarmOn) { SOUND.syntax(); return; }
     var key = norm(raw);
@@ -431,7 +454,12 @@ button.danger { color: var(--bad); }
     save();
     renderStatus(raw.trim(), result, ref);
     renderList(); renderLog();
-    if (result === "found") showAlarm(raw.trim(), ref);
+    if (state.opts.mode === "check") {
+      if (result === "found") SOUND.ok();
+      else if (result === "nohit" || result === "dup") SOUND.warn();
+      else SOUND[result]();
+    }
+    else if (result === "found") showAlarm(raw.trim(), ref);
     else SOUND[result]();
   }
 
@@ -478,7 +506,7 @@ button.danger { color: var(--bad); }
       var cur = $("current");
       cur.className = "current r-" + result;
       $("curVal").textContent = code;
-      $("curRes").textContent = RESULT[result].text + (ref && result !== "found" && norm(ref) !== norm(code) ? " (" + ref + ")" : "");
+      $("curRes").textContent = resText(result) + (ref && result !== "found" && norm(ref) !== norm(code) ? " (" + ref + ")" : "");
     }
   }
   function renderList() {
@@ -509,7 +537,7 @@ button.danger { color: var(--bad); }
       var a = document.createElement("td"); a.className = "t"; a.textContent = fmtTime(l.t);
       var b = document.createElement("td"); b.className = "code"; b.textContent = l.raw;
       var c = document.createElement("td");
-      var chip = document.createElement("span"); chip.className = "chip " + RESULT[l.result].chip; chip.textContent = RESULT[l.result].text;
+      var chip = document.createElement("span"); chip.className = "chip " + RESULT[l.result].chip; chip.textContent = resText(l.result);
       c.appendChild(chip);
       tr.appendChild(a); tr.appendChild(b); tr.appendChild(c); frag.appendChild(tr);
     }
@@ -774,12 +802,24 @@ button.danger { color: var(--bad); }
     state.list = SAMPLE.map(function (r) { return { raw: r, key: norm(r), found: false, at: null }; });
     state.sample = true;
   }
+  function setMode(m) {
+    state.opts.mode = m;
+    ["modeSearch", "modeCheck"].forEach(function (id) { $(id).setAttribute("aria-pressed", $(id).getAttribute("data-m") === m ? "true" : "false"); });
+    document.documentElement.setAttribute("data-mode", m);
+    save(); renderLog();
+    var last = state.log[state.log.length - 1];
+    if (last) renderStatus(last.raw, last.result, last.ref);
+    focusScan();
+  }
+  $("modeSearch").addEventListener("click", function () { setMode("search"); });
+  $("modeCheck").addEventListener("click", function () { setMode("check"); });
   bindOpt("optCase", "ci"); bindOpt("optSep", "sep"); bindOpt("optContains", "contains");
   $("optRegex").value = state.opts.regex || "";
   $("listInput").value = state.list.map(function (e) { return e.raw; }).join("\n");
   rebuildSyntax(); renderAll();
   var lastLog = state.log[state.log.length - 1];
   if (lastLog) renderStatus(lastLog.raw, lastLog.result, lastLog.ref);
+  setMode(state.opts.mode || "search");
   setFocusState();
   focusScan();
   if (navigator.wakeLock) { try { navigator.wakeLock.request("screen").catch(function () {}); } catch (e) {} }
